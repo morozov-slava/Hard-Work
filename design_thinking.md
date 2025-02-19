@@ -10,6 +10,7 @@
 
 Тест в соответствии с TDD:
 
+```py
 class TestGetCoreCampaignPrePeriodsFunction(unittest.TestCase):
     def test_get_core_campaigns_pre_periods(self):
         camp_date_1 = dt.datetime(2024, 1, 1)
@@ -23,18 +24,23 @@ class TestGetCoreCampaignPrePeriodsFunction(unittest.TestCase):
         self.assertCountEqual(cbl.get_core_campaign_pre_periods(camp_date_1), result_camp_date_1)
         self.assertCountEqual(cbl.get_core_campaign_pre_periods(camp_date_2), result_camp_date_2)
         self.assertCountEqual(cbl.get_core_campaign_pre_periods(camp_date_3), result_camp_date_3)
+```
+
 Реализация:
 
+```py
 def get_core_campaign_pre_periods(camp_date: dt.datetime) -> list:
     pre_periods = []
     for n_months_ago in range(3):
         pre_periods.append(camp_date - relativedelta(months=n_months_ago))
     return pre_periods
+```
 В целом, так как эта функция представляет собой минимальный блок дизайна программы, то для этого примера можно сказать, что тесты и код следуют дизайну.
 
 Другие реализации являются похожими, и представляют собой примеры тестирования минимальных блоков дизайна системы.
 Есть пример дизайна валидация некоторого набора данных:
 
+```py
 class TestCoreCampsReportValidator(unittest.TestCase):
 
     def SetUp(self):
@@ -74,5 +80,6 @@ class TestCoreCampsReportValidator(unittest.TestCase):
         self.assertTrue(self.core_camps_report_validator_1.validate())
         self.assertFalse(self.core_camps_report_validator_2.validate())
         self.assertFalse(self.core_camps_report_validator_3.validate())
+```
 
 К сожалению, мне не удалось реализовать более комплексный дизайн ввиду жёсткой привязки проектов к данным.
