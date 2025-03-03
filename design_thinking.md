@@ -1,85 +1,162 @@
-Основные проблемы, с которыми я столкнулся:
+**Пример-1**
 
-Трудно проектировать системы в области анализа данных и машинного обучения, т.к. там очень много компонентов, которые могут изменяться, а также огромную роль играет бизнес-логика.
-Соответственно, при даже незначительных изменениях в бизнес-логике могут потребоваться существенные изменения в системе.
-В целом, я понимаю, что это означает провал дизайна, но пока что трудно при реализации не фокусироваться на имеющихся данных, т.к. они всё решают.
-Как следствие вышесказанного, довольно трудно проектировать тесты в соответствии с TDD, т.к. не удаётся абстрагироваться от конкретики данных.
-После изучения материалов у меня сложилось впечатление, что методология BDD может быть крайне полезной именно с привязкой в проектам в области анализа данных, т.к. помогает более чётко определить спецификацию проекта именно с точки зрения бизнеса.
-
-В связи с этим мне не удалось полноценно спроектировать систему (по правде говоря, я даже не особо понимаю, как к этому вообще лучше подходить, если мы не фокусируемся на конкретной реализации), поэтому в рамках реализации по TDD я ограничился некоторыми функциональными аспектами проекта, не вдаваясь в глубокую абстракцию.
-
-Тест в соответствии с TDD:
+Исходный код:
 
 ```py
-class TestGetCoreCampaignPrePeriodsFunction(unittest.TestCase):
-    def test_get_core_campaigns_pre_periods(self):
-        camp_date_1 = dt.datetime(2024, 1, 1)
-        camp_date_2 = dt.datetime(2024, 2, 29)
-        camp_date_3 = dt.datetime(2024, 6, 10)
+# Если это первый прогон, то мы считаем для всех кампаний 
+# При повторных запусках берём только кампании под мониторингом
+if len(dfp_actual_analytical_report):
+    query_active_camps = query_active_campaigns(today, camps_id_to_exclude, n_month_monitoring)
+else:
+    query_active_camps = query_all_campaigns(camps_id_to_exclude)
 
-        result_camp_date_1 = [dt.datetime(2023, 11, 1), dt.datetime(2023, 12, 1), dt.datetime(2024, 1, 1)]
-        result_camp_date_2 = [dt.datetime(2024, 2, 1), dt.datetime(2024, 1, 1), dt.datetime(2023, 12, 1)]
-        result_camp_date_3 = [dt.datetime(2024, 6, 1), dt.datetime(2024, 5, 1), dt.datetime(2024, 4, 1)]
-
-        self.assertCountEqual(cbl.get_core_campaign_pre_periods(camp_date_1), result_camp_date_1)
-        self.assertCountEqual(cbl.get_core_campaign_pre_periods(camp_date_2), result_camp_date_2)
-        self.assertCountEqual(cbl.get_core_campaign_pre_periods(camp_date_3), result_camp_date_3)
+filepath_active_camps = os.path.join(path_data, "active_camps.csv") 
+dfp_active_camps = orc.execute_query(
+    db_configs, query_active_camps, save_result=True, filepath=filepath_active_camps
+)
 ```
 
-Реализация:
+**Дизайн:**
+
+Выгружаем перечень всех кампаний, для которых доступны отчётные периоды.
+    1. Из таблицы со статистикой за все периоды отбираем те кампании и отчётные периоды, которые не были посчитаны.
+    2. Из таблицы с полными перечнем всем кампаний отбираем новые кампании, которых ещё нет в таблице со статистикой.
+    3. Отбираем из таблицы с полным перечнем всех кампаний новые кампании и старые, для которых не были посчитаны отчётные периоды.
+
+
+Существующий код отличается от описанного дизайна. Для этого дизайна в принципе напрашивается другой код.
+
+Новый код:
 
 ```py
-def get_core_campaign_pre_periods(camp_date: dt.datetime) -> list:
-    pre_periods = []
-    for n_months_ago in range(3):
-        pre_periods.append(camp_date - relativedelta(months=n_months_ago))
-    return pre_periods
+old_reportable_camps = get_old_reportable_campaigns()
+new_reportable_camps = get_new_reportable_campaigns()
+all_reportable_camps = set(old_reportable_camps).union(set(new_reportable_camps))
+if len(all_reportable_camps) != len(old_reportable_camps) + len(new_reportable_camps):
+    raise AssertionError
+df_reportable_campaigns = get_reported_campaigns_dataset(all_reportable_camps)
 ```
-В целом, так как эта функция представляет собой минимальный блок дизайна программы, то для этого примера можно сказать, что тесты и код следуют дизайну.
 
-Другие реализации являются похожими, и представляют собой примеры тестирования минимальных блоков дизайна системы.
-Есть пример дизайна валидация некоторого набора данных:
+Для данного кода итерация заняла около 45 минут, но для данного примера я большой объём кода опустил, т.к. там есть аспекты бизнес-логики + SQL-запросы
+
+
+
+**Пример-2**
+
+
+Исходный код:
 
 ```py
-class TestCoreCampsReportValidator(unittest.TestCase):
+import polars as pl
+import numpy as np
 
-    def SetUp(self):
-        self.df_1 = pd.DataFrame(
-            data={
-                "CAMP_ID": [1, 2, 3, 4, 5],
-                "CAMP_TYPE": ["UPGRADE_TARIFF", "UPGRADE_TARIFF", "VAS", "CHURN", "CHURN"],
-            }
-        )
-        self.df_2 = pd.DataFrame(
-            data={
-                "CAMP_ID": [1, 2, 1, 4, 5],
-                "CAMP_TYPE": ["UPGRADE_TARIFF", "UPGRADE_TARIFF", "VAS", "CHURN", "CHURN"],
-            }
-        )
-        self.df_3 = pd.DataFrame(
-            data={
-                "CAMP_ID": [1, 2, 3, 4, 5],
-                "CAMP_TYPE": ["UPGRADE_TARIFF", "NEW_TYPE", "VAS", "CHURN", "CHURN"],
-            }
-        )
-        self.core_camps_report_validator_1 = crv.CoreCampsReportValidator(self.df_1)
-        self.core_camps_report_validator_2 = crv.CoreCampsReportValidator(self.df_2)
-        self.core_camps_report_validator_3 = crv.CoreCampsReportValidator(self.df_3)
+from sklearn.model_selection import train_test_split
+
+
+class SampleSplitter:
     
-    def test_are_all_unique_camps(self):
-        self.assertTrue(self.core_camps_report_validator_1._are_all_unique_camps())
-        self.assertFalse(self.core_camps_report_validator_2._are_all_unique_camps())
-        self.assertTrue(self.core_camps_report_validator_3._are_all_unique_camps())
+    @staticmethod
+    def random_split(df: pl.DataFrame, core_share: float):
+        if "IS_CORE" in df.columns:
+            raise KeyError("There is already column 'IS_CORE'")
+        df_splitted = df.clone()
+        # generate UCG flag array
+        is_core_group_array = np.random.choice(
+            [1, 0], size=df.shape[0], p=[core_share, 1-core_share]
+        )
+        df_core = df_splitted[np.where(is_core_group_array == 1)[0]]
+        df_other = df_splitted[np.where(is_core_group_array == 0)[0]]
+        return df_core, df_other
+    
+    @staticmethod
+    def stratified_splitting(df: pl.DataFrame, columns: list, core_share: float):
+        df_core, df_other = train_test_split(
+            df, train_size=core_share, 
+            stratify=df.select(columns),
+        )
+        return df_core, df_other
 
-    def test_are_all_available_camp_types(self):
-        self.assertTrue(self.core_camps_report_validator_1._are_all_available_camp_types())
-        self.assertTrue(self.core_camps_report_validator_2._are_all_available_camp_types())
-        self.assertFalse(self.core_camps_report_validator_3._are_all_available_camp_types())
-
-    def test_validate(self):
-        self.assertTrue(self.core_camps_report_validator_1.validate())
-        self.assertFalse(self.core_camps_report_validator_2.validate())
-        self.assertFalse(self.core_camps_report_validator_3.validate())
 ```
 
-К сожалению, мне не удалось реализовать более комплексный дизайн ввиду жёсткой привязки проектов к данным.
+
+**Дизайн:**
+
+Область алгоритма:
+Необходимы 2 алгоритма для разбиения некоторой выборки:
+    1. Генерация случайной бинарной выборки (0 и 1) заданного размера с некоторым вероятностным соотношением.
+    2. Генерация стратифицированной бинарной выборки (0 и 1) относительно некоторого вектора с длиной равной длине вектора.
+       (данная реализация в целом уже есть в функции `train_test_split()`)
+
+Область бизнес-логики:
+    1. Разбиение табличного датасета по алгоритму случайного бинарного разбиения на две группы с формированием поля `IS_CORE`
+    2. Разбиение табличного датасета по алгоритму стратифицированного бинарного разбиения на две группы с формированием поля `IS_CORE`
+
+Существующий код отличается от описанного дизайна тем, что я объединил в нём два интерфейса. 
+Соответственно, здесь можно реализовать эти два интерфейса.
+
+
+**Новый код:**
+
+```py
+from abc import ABC, abstractmethod
+
+import polars as pl
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+
+class ParentDatasetSplitter(ABC):
+
+    def __init__(self, dataset: pl.DataFrame):
+        if "IS_CORE" in dataset.columns:
+            raise KeyError("There is already column 'IS_CORE' in dataset")
+        self.df = dataset
+        self.dataset_core = None
+        self.dataset_other = None
+
+    @abstractmethod
+    def split(self) -> None:
+        raise NotImplementedError
+
+
+    # Additional methods
+    def get_dataset(self):
+        return self.dataset
+
+    def get_dataset_core(self):
+        return self.dataset_core
+    
+    def dataset_other(self):
+        return self.dataset_other
+
+
+class BinaryRandomDatasetSplitter(ParentDatasetSplitter):
+    def __init__(self):
+        super().__init__()
+
+    def _binary_random_splitting(self, size: int, one_label_share: float) -> np.array:
+        return np.random.choice([1, 0], size=size, p=[one_label_share, 1-one_label_share])
+
+    def split(self, core_share: float) -> None:
+        is_core_array = self.make_binary_random_splitting(self.df.shape[0], core_share)
+        df_splitted = self.df.with_columns(
+            pl.lit(is_core_array).alias("IS_CORE")
+        )
+        self.dataset_core = df_splitted.filter(pl.col("IS_CORE") == 1)
+        self.dataset_other = df_splitted.filter(pl.col("IS_CORE") == 0)
+
+
+class BinaryStratifiedDatasetSplitter(ParentDatasetSplitter):
+    def __init__(self):
+        super().__init__()
+
+    def split(columns: list, core_share: float) -> None:
+        df_core, df_other = train_test_split(self.df, train_size=core_share, stratify=self.df.select(columns))
+        self.dataset_core = df_core
+        self.dataset_other = df_other
+```
+
+Для данного кода итерация заняла около часа.
+
+
+К сожалению, у меня есть не так много подходящего кода, который можно было бы использовать в рамках данного задания, т.к. большая часть ML-кода довольна прямолинейна сама по себе и упирается в конкретные реализации и общепринятые концепции по работе с данными.
